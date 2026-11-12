@@ -93,6 +93,19 @@
   .gen p { margin: 0; color: var(--muted); font-size: 13.5px; max-width: 70ch; }
   .gen textarea { width: 100%; min-height: 110px; font: 13px/1.45 var(--mono); padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--fg); resize: vertical; }
   .gen textarea:focus { outline: 2px solid var(--focus); outline-offset: 1px; }
+  details.gen summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; }
+  details.gen summary::-webkit-details-marker { display: none; }
+  details.gen summary::before { content: "▸"; color: var(--orange); font-size: 14px; }
+  details[open].gen summary::before { content: "▾"; }
+  details.gen summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+  .cat-grid { display: grid; grid-template-columns: 60px minmax(0, 1.6fr) 90px 80px minmax(0, 2fr); gap: 8px 10px; align-items: center; }
+  .cat-grid .ch { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .cat-grid input { width: 100%; height: 36px; font: 14px var(--body); padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--fg); }
+  .cat-grid input.pt { font-family: var(--mono); text-align: center; -moz-appearance: textfield; }
+  .cat-grid input.pt::-webkit-outer-spin-button, .cat-grid input.pt::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .cat-grid input:focus { outline: 2px solid var(--focus); outline-offset: 1px; }
+  .cat-grid .n { font-family: var(--display); font-weight: 800; color: var(--orange); font-size: 20px; }
+  @media (max-width: 700px) { .cat-grid { grid-template-columns: 40px minmax(0, 1fr) 70px 64px; } .cat-grid .desc, .cat-grid .ch.desc { display: none; } }
   .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   .winners { display: flex; flex-wrap: wrap; gap: 10px; }
   .winners .w { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 500; background: var(--surface-2); padding: 4px 10px 4px 4px; border-radius: 999px; }
@@ -126,11 +139,7 @@
       <div class="eyebrow">Weekly spiff · most points per team · $50 meal expensed</div>
     </div>
     <div class="top">
-      <div class="rules" aria-label="Point values">
-        <div class="rule"><b>3</b><div>Net new meeting<small>per meeting booked</small></div></div>
-        <div class="rule"><b>2</b><div>Q3 deal advancement<small>closed-won</small></div></div>
-        <div class="rule"><b>1</b><div>Fivetran meeting w/ renewal AE<small>post-renewal or 6 months out</small></div></div>
-      </div>
+      <div class="rules" aria-label="Point values" id="rules"></div>
       <div class="overall">
         <div class="ava" id="ov-ava">—</div>
         <div>
@@ -145,6 +154,15 @@
 
 <div class="page">
   <section class="teams" id="teams"></section>
+
+  <details class="gen" id="cat-editor">
+    <summary><h3>This week's point system</h3><span class="eyebrow">Edit categories, labels and point values</span></summary>
+    <p>Change the names and points when the plan changes. Column headers, the rules strip, and the ChatGPT prompt all update instantly. Counts already entered stay with their column.</p>
+    <div class="cat-grid" id="cat-grid"></div>
+    <div class="actions">
+      <button id="cat-default">Restore this week's defaults</button>
+    </div>
+  </details>
 
   <section class="gen">
     <h3>Winner image · send to ChatGPT</h3>
@@ -173,12 +191,18 @@
     { id: "west", name: "West", reps: ["Grace Hawkins","Kayvon Afarinesh","Mitchell Penrod"] },
     { id: "east", name: "East", reps: ["Cindy Ha","Juanfe Ramirez","Tony Lenkiewicz"] },
   ];
-  const CATS = [
-    { key: "nnm", label: "NNM", pts: 3, title: "Net new meetings (3 pts each)" },
-    { key: "adv", label: "Q3 CW", pts: 2, title: "Q3 deal advancement, closed-won (2 pts each)" },
-    { key: "ren", label: "Ren AE", pts: 1, title: "Fivetran meetings with renewal AEs (1 pt each)" },
+  const DEFAULT_CATS = [
+    { key: "c1", name: "NN Meetings", label: "NNM", pts: 3, desc: "Net new meetings booked" },
+    { key: "c2", name: "PAM", label: "PAM", pts: 2, desc: "Pipeline Activation Meeting" },
+    { key: "c3", name: "Partner Meetings", label: "Partner", pts: 1, desc: "Meetings with partners" },
   ];
-  const KEY = "pg-tuesday-v1";
+  const KEY = "pg-tuesday-v1", CAT_KEY = "pg-tuesday-cats-v1";
+  let CATS;
+  try { CATS = JSON.parse(localStorage.getItem(CAT_KEY)); } catch (e) {}
+  if (!Array.isArray(CATS) || CATS.length !== 3) CATS = DEFAULT_CATS.map(c => ({ ...c }));
+  const saveCats = () => { try { localStorage.setItem(CAT_KEY, JSON.stringify(CATS)); } catch (e) {} };
+  const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  const catTitle = c => `${c.name} (${c.pts} pt${c.pts === 1 ? "" : "s"} each)`;
   const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const initials = n => n.split(" ").map(w => w[0]).join("").toUpperCase();
   const avatar = (n, cls = "ava") => AVATARS[slug(n)]
@@ -202,7 +226,7 @@
       sec.innerHTML = `
         <div class="team-head"><h2>${t.name}</h2><span class="tp" id="tp-${t.id}"></span></div>
         <div class="leader" id="lead-${t.id}"></div>
-        <div class="cols"><span>Rep</span>${CATS.map(c => `<span title="${c.title}">${c.label}</span>`).join("")}<span>Pts</span></div>
+        <div class="cols"><span>Rep</span>${CATS.map(c => `<span class="col-${c.key}"></span>`).join("")}<span>Pts</span></div>
         <div class="rows" id="rows-${t.id}"></div>`;
       teamsEl.appendChild(sec);
       const rows = sec.querySelector(".rows");
@@ -210,12 +234,45 @@
         const row = document.createElement("div");
         row.className = "rep"; row.dataset.rep = rep;
         row.innerHTML = `<div class="nm">${avatar(rep)}<span>${rep}</span></div>` +
-          CATS.map(c => `<input type="number" min="0" inputmode="numeric" id="${slug(rep)}-${c.key}" data-rep="${rep}" data-cat="${c.key}" value="${get(rep, c.key)}" aria-label="${rep}: ${c.title}">`).join("") +
+          CATS.map(c => `<input type="number" min="0" inputmode="numeric" id="${slug(rep)}-${c.key}" data-rep="${rep}" data-cat="${c.key}" value="${get(rep, c.key)}">`).join("") +
           `<span class="pts" id="pts-${slug(rep)}">0</span>`;
         rows.appendChild(row);
       }
     }
+    renderCats();
   }
+
+  // Category labels, rules strip, and editor all derive from CATS
+  function renderCats() {
+    for (const c of CATS) {
+      document.querySelectorAll(".col-" + c.key).forEach(el => { el.textContent = c.label || c.name; el.title = catTitle(c); });
+      document.querySelectorAll(`input[data-cat="${c.key}"]`).forEach(el => el.setAttribute("aria-label", `${el.dataset.rep}: ${catTitle(c)}`));
+    }
+    document.getElementById("rules").innerHTML = CATS.map(c =>
+      `<div class="rule"><b>${c.pts}</b><div>${esc(c.name)}<small>${esc(c.desc || "")}</small></div></div>`).join("");
+    const g = document.getElementById("cat-grid");
+    if (!g.dataset.built) {
+      g.dataset.built = "1";
+      g.innerHTML = `<span class="ch">#</span><span class="ch">Category name</span><span class="ch">Short label</span><span class="ch">Points</span><span class="ch desc">Description</span>` +
+        CATS.map((c, i) => `<span class="n">${i + 1}</span>
+          <input id="cat-${c.key}-name" data-key="${c.key}" data-f="name" placeholder="Category name">
+          <input id="cat-${c.key}-label" data-key="${c.key}" data-f="label" maxlength="8" placeholder="Label">
+          <input id="cat-${c.key}-pts" data-key="${c.key}" data-f="pts" class="pt" type="number" min="0" step="1">
+          <input id="cat-${c.key}-desc" data-key="${c.key}" data-f="desc" class="desc" placeholder="Optional detail">`).join("");
+    }
+    for (const c of CATS) for (const f of ["name", "label", "pts", "desc"]) {
+      const el = document.getElementById(`cat-${c.key}-${f}`);
+      if (el && document.activeElement !== el) el.value = c[f] ?? "";
+    }
+  }
+  document.getElementById("cat-grid").addEventListener("input", e => {
+    const el = e.target, c = CATS.find(x => x.key === el.dataset.key); if (!c) return;
+    c[el.dataset.f] = el.dataset.f === "pts" ? Math.max(0, parseInt(el.value, 10) || 0) : el.value;
+    saveCats(); renderCats(); render();
+  });
+  document.getElementById("cat-default").addEventListener("click", () => {
+    CATS = DEFAULT_CATS.map(c => ({ ...c })); saveCats(); renderCats(); render();
+  });
 
   let winners = [];
   function render() {
@@ -257,7 +314,7 @@
     wEl.innerHTML = winners.length ? winners.map(w => `<span class="w">${avatar(w.name)}${w.name}<small>· ${w.team} · ${w.pts} pts</small></span>`).join("") : `<span style="color:var(--muted);font-size:13px">Winners appear here once points are logged.</span>`;
     const names = winners.map(w => `${w.name} (${w.team}, ${w.pts} pts)`).join(", ");
     const prompt = winners.length
-      ? `Create a fun, celebratory photo-realistic image of this week's dbt Labs PG Tuesday winners: ${names}. Show ${winners.length === 1 ? "them" : "all " + winners.length + " of them"} together, smiling and proudly holding up a DoorDash gift card, with confetti and a banner reading "PG Tuesday Champions – ${today}". Use the attached headshots for each person's likeness, in the order listed. Style: bright, upbeat office celebration, dbt orange (#FF694B) accents.`
+      ? `Create a fun, celebratory photo-realistic image of this week's dbt Labs PG Tuesday winners: ${names}. Show ${winners.length === 1 ? "them" : "all " + winners.length + " of them"} together, smiling and proudly holding up a DoorDash gift card, with confetti and a banner reading "PG Tuesday Champions – ${today}". Use the attached headshots for each person's likeness, in the order listed. Style: bright, upbeat office celebration, dbt orange (#FF694B) accents. (This week's points: ${CATS.map(c => `${c.name} = ${c.pts}`).join(", ")}.)`
       : `Create a celebratory image of this week's dbt Labs PG Tuesday winners holding a DoorDash gift card. (Log points on the leaderboard first so the winners' names fill in here.)`;
     document.getElementById("prompt").value = prompt;
     document.getElementById("open-gpt").href = "https://chatgpt.com/?q=" + encodeURIComponent(prompt);
