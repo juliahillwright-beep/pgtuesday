@@ -86,6 +86,7 @@
   .rep input { width: 100%; height: 34px; text-align: center; font-family: var(--mono); font-size: 15px; border: 1px solid var(--line); background: var(--surface-2); color: var(--fg); border-radius: 6px; padding: 0 2px; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
   .rep input::-webkit-outer-spin-button, .rep input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   .rep input:focus { outline: 2px solid var(--focus); outline-offset: 1px; }
+  input::placeholder { color: var(--line); opacity: 1; }
   .rep .pts { font-family: var(--display); font-size: 22px; font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 
   .gen { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: grid; gap: 12px; }
@@ -177,9 +178,9 @@
   </section>
 
   <div class="foot">
-    <span id="saved">Counts save in this browser as you type.</span>
+    <span id="saved">Fresh board: counts start at 0 each time the page opens. Point categories are remembered.</span>
     <div class="confirm" id="reset-area">
-      <button class="danger" id="reset">Reset for a new Tuesday</button>
+      <button class="danger" id="reset">Reset all counts to 0</button>
     </div>
   </div>
 </div>
@@ -209,9 +210,10 @@
     ? `<img class="${cls}" src="${AVATARS[slug(n)]}" alt="" title="${n}">`
     : `<span class="${cls}" title="${n}">${initials(n)}</span>`;
 
+  // Counts live only for this visit: every time the page opens, everyone starts at 0. (Category settings are still remembered.)
   let state = {};
-  try { state = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { state = {}; }
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+  try { localStorage.removeItem(KEY); } catch (e) {}
+  const save = () => {};
   const get = (rep, cat) => Math.max(0, parseInt((state[rep] || {})[cat], 10) || 0);
   const points = rep => CATS.reduce((s, c) => s + get(rep, c.key) * c.pts, 0);
   const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -331,7 +333,21 @@
     state[el.dataset.rep] = state[el.dataset.rep] || {};
     state[el.dataset.rep][el.dataset.cat] = Math.max(0, parseInt(el.value, 10) || 0);
     save(); render();
-    document.getElementById("saved").textContent = "Saved " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    document.getElementById("saved").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + " · counts clear when the page is reopened.";
+  });
+
+  // Empty or invalid number cells snap back to 0 when you leave them; focusing a cell selects its value so typing replaces it
+  document.addEventListener("focusout", e => {
+    const el = e.target;
+    if (!el.matches || !el.matches('input[type="number"]')) return;
+    const v = Math.max(0, parseInt(el.value, 10) || 0);
+    if (String(v) !== el.value) { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); }
+  });
+  document.addEventListener("focusin", e => {
+    const el = e.target;
+    if (!el.matches || !el.matches('input[type="number"]')) return;
+    if (el.value === "0") { el.placeholder = "0"; el.value = ""; }
+    else setTimeout(() => el.select(), 0);
   });
 
   const resetArea = document.getElementById("reset-area");
@@ -342,10 +358,10 @@
       state = {}; save();
       document.querySelectorAll(".rep input").forEach(i => i.value = 0);
       render(); restoreReset();
-      document.getElementById("saved").textContent = "Cleared for a new week.";
+      document.getElementById("saved").textContent = "All counts reset to 0.";
     } else if (e.target.id === "no") restoreReset();
   });
-  function restoreReset() { resetArea.innerHTML = `<button class="danger" id="reset">Reset for a new Tuesday</button>`; }
+  function restoreReset() { resetArea.innerHTML = `<button class="danger" id="reset">Reset all counts to 0</button>`; }
 
   build(); render();
 </script>
